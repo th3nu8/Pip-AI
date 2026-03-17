@@ -4,6 +4,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import datetime
 import requests
 
 OLLAMA_HOST = "http://localhost:11434"
@@ -15,6 +16,13 @@ PIPER_VOICE_NAME = "en_US-amy-medium"
 VOICE_DIR = os.path.join(os.path.dirname(__file__), "voices")
 PIPER_MODEL_PATH = os.path.join(VOICE_DIR, f"{PIPER_VOICE_NAME}.onnx")
 PIPER_JSON_PATH = os.path.join(VOICE_DIR, f"{PIPER_VOICE_NAME}.onnx.json")
+
+# TTS_MODE:
+# - "auto" (default): try to play audio if possible, else save WAV
+# - "play": force playback (may fail on VPS)
+# - "wav": always save WAV files under ./tts_out/
+TTS_MODE = os.environ.get("TTS_MODE", "auto").strip().lower() or "auto"
+TTS_OUT_DIR = os.path.join(os.path.dirname(__file__), "tts_out")
 
 
 def ask_ollama(prompt: str) -> str:
@@ -104,6 +112,14 @@ def _play_wav(path: str) -> None:
     print("\n[TTS warning: no audio player found (ffplay/aplay/paplay)]", file=sys.stderr)
 
 
+def _save_wav(src_path: str) -> str:
+    os.makedirs(TTS_OUT_DIR, exist_ok=True)
+    ts = datetime.datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    dest = os.path.join(TTS_OUT_DIR, f"tts_{ts}.wav")
+    shutil.copyfile(src_path, dest)
+    return dest
+
+
 def speak_text(text: str) -> None:
     """
     Offline TTS via Piper. If Piper isn't available, fall back to text-only.
@@ -132,8 +148,21 @@ def speak_text(text: str) -> None:
                 err = (proc.stderr or "").strip()
                 print(f"\n[TTS error: piper failed ({proc.returncode}): {err}]", file=sys.stderr)
                 return
+            if TTS_MODE == "wav":
+                saved = _save_wav(wav_path)
+                print(f"\n[TTS] Wrote {saved}", file=sys.stderr)
+                return
 
-            _play_wav(wav_path)
+            if TTS_MODE == "play":
+                _play_wav(wav_path)
+                return
+
+            # auto: try playback; if no player available, save instead
+            if shutil.which("ffplay") or shutil.which("aplay") or shutil.which("paplay"):
+                _play_wav(wav_path)
+            else:
+                saved = _save_wav(wav_path)
+                print(f"\n[TTS] No audio device/player detected; wrote {saved}", file=sys.stderr)
     except Exception as e:
         print(f"\n[TTS error: {e}; continuing without speech]", file=sys.stderr)
 

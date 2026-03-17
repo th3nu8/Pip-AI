@@ -60,3 +60,15 @@ python3 ollama_chat_tts.py
 
 Type your questions; the response will be printed and spoken aloud.
 
+## VPS note (Ubuntu 24.04)
+
+Most VPS machines have **no audio device**, so playback will fail even if TTS works.
+
+To generate WAV files you can download, run with:
+
+```bash
+TTS_MODE=wav python3 ollama_chat_tts.py
+```
+
+WAV files will be written to `./tts_out/` (timestamped).
+
