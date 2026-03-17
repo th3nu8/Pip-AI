@@ -6,7 +6,7 @@
 
 ```bash
 sudo apt update
-sudo apt install -y curl python3 python3-venv python3-pip espeak ffmpeg
+sudo apt install -y curl python3 python3-venv python3-pip ffmpeg
 ```
 
 - Install Ollama:
@@ -27,6 +27,20 @@ ollama serve
 ollama pull llama3
 # or
 ollama pull mistral
+```
+
+**Install Piper (offline TTS):**
+
+Option A (recommended on Ubuntu): install via Snap
+
+```bash
+sudo snap install piper-tts --edge
+```
+
+Option B: install via pip (inside the venv below)
+
+```bash
+pip install piper-tts
 ```
 
 **Python setup (inside this repo):**

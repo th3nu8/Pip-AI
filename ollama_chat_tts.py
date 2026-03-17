@@ -1,10 +1,20 @@
 import sys
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 import requests
-import pyttsx3
 
 OLLAMA_HOST = "http://localhost:11434"
 MODEL_NAME = "llama3"  # or "mistral", or any other pulled model
+
+# Piper voice (small-ish, good default). Downloaded automatically on first run.
+PIPER_VOICE_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/amy/medium"
+PIPER_VOICE_NAME = "en_US-amy-medium"
+VOICE_DIR = os.path.join(os.path.dirname(__file__), "voices")
+PIPER_MODEL_PATH = os.path.join(VOICE_DIR, f"{PIPER_VOICE_NAME}.onnx")
+PIPER_JSON_PATH = os.path.join(VOICE_DIR, f"{PIPER_VOICE_NAME}.onnx.json")
 
 
 def ask_ollama(prompt: str) -> str:
@@ -53,32 +63,78 @@ def ask_ollama(prompt: str) -> str:
         return ""
 
 
+def _download_file(url: str, dest_path: str) -> None:
+    os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+    with requests.get(url, stream=True, timeout=120) as r:
+        r.raise_for_status()
+        with open(dest_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+
+
+def ensure_piper_voice() -> None:
+    if os.path.exists(PIPER_MODEL_PATH) and os.path.exists(PIPER_JSON_PATH):
+        return
+
+    print("\n[Downloading Piper voice model...]", file=sys.stderr)
+    model_url = f"{PIPER_VOICE_BASE}/{PIPER_VOICE_NAME}.onnx?download=true"
+    json_url = f"{PIPER_VOICE_BASE}/{PIPER_VOICE_NAME}.onnx.json?download=true"
+    _download_file(model_url, PIPER_MODEL_PATH)
+    _download_file(json_url, PIPER_JSON_PATH)
+
+
+def _play_wav(path: str) -> None:
+    # Prefer ffplay (from ffmpeg), else fall back to aplay/paplay if present.
+    if shutil.which("ffplay"):
+        subprocess.run(
+            ["ffplay", "-autoexit", "-nodisp", "-loglevel", "error", path],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        return
+    if shutil.which("aplay"):
+        subprocess.run(["aplay", "-q", path], check=False)
+        return
+    if shutil.which("paplay"):
+        subprocess.run(["paplay", path], check=False)
+        return
+
+    print("\n[TTS warning: no audio player found (ffplay/aplay/paplay)]", file=sys.stderr)
+
+
 def speak_text(text: str) -> None:
     """
-    Use pyttsx3 (offline TTS) to speak the text aloud.
-    If initialization or voice selection fails, fall back to text only.
+    Offline TTS via Piper. If Piper isn't available, fall back to text-only.
     """
     if not text:
         return
 
+    piper_bin = shutil.which("piper")
+    if not piper_bin:
+        print("\n[TTS warning: 'piper' not found; continuing without speech]", file=sys.stderr)
+        return
+
     try:
-        engine = pyttsx3.init()
+        ensure_piper_voice()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            wav_path = os.path.join(tmpdir, "out.wav")
+            proc = subprocess.run(
+                [piper_bin, "-m", PIPER_MODEL_PATH, "--output_file", wav_path],
+                input=text,
+                text=True,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            if proc.returncode != 0:
+                err = (proc.stderr or "").strip()
+                print(f"\n[TTS error: piper failed ({proc.returncode}): {err}]", file=sys.stderr)
+                return
 
-        # Try to pick a known-good voice on Linux, otherwise keep default
-        try:
-            voices = engine.getProperty("voices") or []
-            # Prefer an English voice if available
-            en_voice = next((v for v in voices if "en" in (v.languages or [b""]) or "english" in (v.name or "").lower()), None)
-            if en_voice is not None:
-                engine.setProperty("voice", en_voice.id)
-        except Exception:
-            # Voice selection failed; continue with whatever default works
-            pass
-
-        engine.say(text)
-        engine.runAndWait()
+            _play_wav(wav_path)
     except Exception as e:
-        # TTS failed; just log to stderr and continue
         print(f"\n[TTS error: {e}; continuing without speech]", file=sys.stderr)
 
 

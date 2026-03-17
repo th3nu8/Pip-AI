@@ -1,2 +1,2 @@
 requests
-pyttsx3
+piper-tts
