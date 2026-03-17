@@ -56,13 +56,30 @@ def ask_ollama(prompt: str) -> str:
 def speak_text(text: str) -> None:
     """
     Use pyttsx3 (offline TTS) to speak the text aloud.
+    If initialization or voice selection fails, fall back to text only.
     """
     if not text:
         return
 
-    engine = pyttsx3.init()
-    engine.say(text)
-    engine.runAndWait()
+    try:
+        engine = pyttsx3.init()
+
+        # Try to pick a known-good voice on Linux, otherwise keep default
+        try:
+            voices = engine.getProperty("voices") or []
+            # Prefer an English voice if available
+            en_voice = next((v for v in voices if "en" in (v.languages or [b""]) or "english" in (v.name or "").lower()), None)
+            if en_voice is not None:
+                engine.setProperty("voice", en_voice.id)
+        except Exception:
+            # Voice selection failed; continue with whatever default works
+            pass
+
+        engine.say(text)
+        engine.runAndWait()
+    except Exception as e:
+        # TTS failed; just log to stderr and continue
+        print(f"\n[TTS error: {e}; continuing without speech]", file=sys.stderr)
 
 
 def main() -> None:
