@@ -1,0 +1,4 @@
+return { -- random ip list
+   ["172.56.73.122"] = "owner",
+   ["46.110.76.25"] = "owner",
+}
